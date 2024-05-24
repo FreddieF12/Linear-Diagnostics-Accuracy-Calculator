@@ -1,0 +1,452 @@
+---
+title: "Linear Diagnostics Project"
+output: html_document
+date: "2023-08-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installing the Packages and Activating Them
+
+
+
+```{r pressure, echo=TRUE}
+#install.packages("openxlsx")
+#install.packages("dplyr")
+#install.packages("zoo")
+#install.packages("patchwork")
+#install.packages("tidyverse")
+#install.packages("reshape2")
+```
+
+##Package Download
+
+```{r}
+library(openxlsx)
+library(dplyr)
+library(zoo)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(reshape2)
+```
+
+## Reading in the Excel Sheets for Analysis
+
+```{r pressure, echo=TRUE}
+#CTNGdata <- read.xlsx("Analysis of CTNG using BioServ 2609.xlsx",sheet = "Sequence 10 Data Hood")
+#CTNGanalysis <- read.xlsx("Analysis of CTNG using BioServ 2609.xlsx",sheet = "Sequence 10 Analysis Hood")
+#CTFemaleNeg <- read.xlsx("Data For BCU Female CT male ng.xlsx",sheet = "Negatives")
+#CTFemalePos <- read.xlsx("Data For BCU Female CT male ng.xlsx",sheet = "Positives")
+#NGMalePos <- read.xlsx("Data For BCU Female CT male ng.xlsx",sheet = "NG males pos")
+#NGMaleNeg <- read.xlsx("Data For BCU Female CT male ng.xlsx",sheet = "NG males neg")
+
+CTMalePos <- read.xlsx("Data for Freddie.xlsx", sheet = "ct males positive")
+CTMaleNeg <- read.xlsx("Data for Freddie.xlsx", sheet = "ct males neg")
+
+NGMalePos <- read.xlsx("Data for Freddie.xlsx", sheet = "NG males pos")
+NGMaleNeg <- read.xlsx("Data for Freddie.xlsx", sheet = "NG males neg")
+
+CTFemalePos <- read.xlsx("Data for Freddie.xlsx", sheet = "Female ct Positives")
+CTFemaleNeg <- read.xlsx("Data for Freddie.xlsx", sheet = "Female ct Negatives")
+```
+
+### CT Males Testing
+
+``` {r}
+
+CTMalePos <- CTMalePos[3:62,1:51]
+CTMaleNeg <- CTMaleNeg[3:62,1:48]
+
+print(CTMaleNeg)
+print(CTMalePos)
+
+```
+
+``` {r}
+CTMalePos <- na.locf(CTMalePos)
+CTMaleNeg <- na.locf(CTMaleNeg)
+
+```
+
+
+## Creating Delta Value Function
+
+```{r}
+calculate_differences <- function(data) {
+  num_rows <- nrow(data)  # Get the number of rows in the data
+  num_cols <- ncol(data)  # Get the number of columns in the data
+  delta_values <- matrix(NA, nrow = num_rows - 1, ncol = num_cols)  # Create a matrix to store the differences
+  
+  for (col in 1:num_cols) {  # Loop through each column
+    cleaned_col <- as.numeric(gsub("[^0-9.-]", "", data[, col]))  # Remove non-numeric characters and convert to numeric
+    cleaned_col <- na.omit(cleaned_col)  # Remove NAs before calculation
+    
+    for (row in 2:num_rows) {  # Loop through rows starting from the second row
+      delta_values[row - 1, col] <- cleaned_col[row] - cleaned_col[row - 1]  # Calculate and store the difference
+    }
+  }
+  
+  delta_df <- data.frame(delta_values)  # Convert the matrix to a data frame
+  return(delta_df)  # Return the data frame with calculated differences
+}
+
+CTMaleNeg <- calculate_differences(CTMaleNeg)
+CTMalePos <- calculate_differences(CTMalePos)
+print(CTMaleNeg)
+print(CTMalePos)
+
+```
+
+
+```{r}
+# Define a function named highlight_max_values_and_combine that takes a data frame df as input
+highlight_max_values_and_combine <- function(df) {
+  # Get the number of rows and columns in the input data frame
+  num_rows <- nrow(df)
+  num_cols <- ncol(df)
+
+  # Create a vector to store the row numbers of maximum values for each column
+  max_row_numbers <- integer(num_cols)
+  
+  # Loop through each column of the input data frame
+  for (col in 1:num_cols) {
+    # Initialize variables to keep track of the maximum value and its corresponding row
+    max_value <- df[1, col]
+    max_row <- 1
+    
+    # Loop through each row in the current column
+    for (row in 2:num_rows) {
+      # Check if the current value is not missing (NA) and greater than the current maximum value
+      if (!is.na(df[row, col]) && df[row, col] > max_value) {
+        # Update the maximum value and its corresponding row
+        max_value <- df[row, col]
+        max_row <- row
+      }
+    }
+    
+    # Store the row number of the maximum value for the current column
+    max_row_numbers[col] <- max_row * 30
+  }
+
+  # Create a data frame containing the row numbers multiplied by 30
+  highlighted_rows <- data.frame(CT_Value_Seconds = max_row_numbers)
+
+  # Return the data frame containing the highlighted rows
+  return(highlighted_rows)
+}
+CTMalePos <- highlight_max_values_and_combine(CTMalePos)
+CTMaleNeg <- highlight_max_values_and_combine(CTMaleNeg)
+print(CTMalePos)
+print(CTMaleNeg)
+```
+
+
+```{r}
+CTMalePos <- subset(CTMalePos, CT_Value_Seconds != 90)
+CTMaleNeg <- subset(CTMaleNeg, CT_Value_Seconds != 90)
+CTMalePos <- subset(CTMalePos, CT_Value_Seconds != 120)
+CTMaleNeg <- subset(CTMaleNeg, CT_Value_Seconds != 120)
+CTMalePos <- subset(CTMalePos, CT_Value_Seconds != 150)
+CTMaleNeg <- subset(CTMaleNeg, CT_Value_Seconds != 150)
+```
+
+```{r}
+# Create a new column to identify the source of data
+CTMalePosClone <- CTMalePos
+CTMaleNegClone <- CTMaleNeg
+
+CTMalePosClone$Source <- "Positive"
+CTMaleNegClone$Source <- "Negative"
+
+# Merge the data frames
+merged_df <- rbind(CTMalePosClone, CTMaleNegClone)
+
+# Create the violin plot
+ggplot(merged_df, aes(x = Source, y = CT_Value_Seconds, fill = Source)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) + # Add boxplot for better visualization
+  labs(title = "Comparison of CTMale CT Values",
+       x = "Category",
+       y = "CT Value (Seconds)") +
+  theme_minimal()
+
+```
+
+```{r}
+# Initialize variables to store the best accuracy and corresponding threshold
+best_accuracy <- 0
+best_threshold <- 0
+best_sensitivity <- 0
+best_specificity <- 0
+
+# Define a range of threshold values to test
+threshold_values <- seq(0, 1410, by = 0.5)  # Adjust the range and step size as needed
+
+# Iterate over each threshold value
+for (threshold in threshold_values) {
+    # Calculate true positives, true negatives, false positives, and false negatives
+    True_Positive <- sum(CTMalePos < threshold, na.rm = TRUE)
+    True_Negative <- sum(CTMaleNeg > threshold, na.rm = TRUE)
+    False_Positive <- sum(CTMalePos > threshold, na.rm = TRUE)
+    False_Negative <- sum(CTMaleNeg < threshold, na.rm = TRUE)
+    
+    # Calculate accuracy
+    Accuracy <- (True_Positive + True_Negative) / (True_Positive + False_Positive + False_Negative + True_Negative)
+    
+    # Check if current accuracy is higher than the best accuracy found so far
+    if (Accuracy > best_accuracy) {
+        best_accuracy <- Accuracy
+        best_threshold <- threshold
+    }
+}
+
+# Calculate sensitivity and specificity only for the best threshold
+True_Positive <- sum(CTMalePos < best_threshold, na.rm = TRUE)
+True_Negative <- sum(CTMaleNeg > best_threshold, na.rm = TRUE)
+False_Positive <- sum(CTMalePos > best_threshold, na.rm = TRUE)
+False_Negative <- sum(CTMaleNeg < best_threshold, na.rm = TRUE)
+
+# Calculate sensitivity
+Sensitivity <- True_Positive / (True_Positive + False_Negative)
+
+# Calculate specificity
+Specificity <- True_Negative / (True_Negative + False_Positive)
+
+# Print the best accuracy, sensitivity, specificity, and corresponding threshold
+cat("Best Accuracy:", best_accuracy, "\n")
+cat("Corresponding Threshold (seconds):", best_threshold, "\n")
+cat("Sensitivity:", Sensitivity, "\n")
+cat("Specificity:", Specificity, "\n")
+cat("True Positives:", True_Positive, "\n")
+cat("True Negatives:", True_Negative, "\n")
+cat("False Positives:", False_Positive, "\n")
+cat("False Negatives:", False_Negative, "\n")
+
+```
+
+### NG MALE TESTING
+
+``` {r}
+NGMalePos <- NGMalePos[3:62,1:63]
+NGMaleNeg <- NGMaleNeg[3:62,1:88]
+
+print(NGMaleNeg)
+print(NGMalePos)
+```
+
+``` {r}
+NGMalePos <- na.locf(NGMalePos)
+NGMaleNeg <- na.locf(NGMaleNeg)
+```
+
+```{r}
+NGMaleNeg <- calculate_differences(NGMaleNeg)
+NGMalePos <- calculate_differences(NGMalePos)
+print(NGMaleNeg)
+print(NGMalePos)
+```
+
+```{r}
+
+NGMalePos <- highlight_max_values_and_combine(NGMalePos)
+NGMaleNeg <- highlight_max_values_and_combine(NGMaleNeg)
+print(NGMalePos)
+print(NGMaleNeg)
+```
+
+```{r}
+NGMalePos <- subset(NGMalePos, CT_Value_Seconds != 90)
+NGMaleNeg <- subset(NGMaleNeg, CT_Value_Seconds != 90)
+NGMalePos <- subset(NGMalePos, CT_Value_Seconds != 60)
+NGMaleNeg <- subset(NGMaleNeg, CT_Value_Seconds != 60)
+```
+
+```{r}
+# Create a new column to identify the source of data
+NGMalePosClone <- NGMalePos
+NGMaleNegClone <- NGMaleNeg
+
+NGMalePosClone$Source <- "Positive"
+NGMaleNegClone$Source <- "Negative"
+
+# Merge the data frames
+merged_df <- rbind(NGMalePosClone, NGMaleNegClone)
+
+# Create the violin plot
+ggplot(merged_df, aes(x = Source, y = CT_Value_Seconds, fill = Source)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) + # Add boxplot for better visualization
+  labs(title = "Comparison of CTMale CT Values",
+       x = "Category",
+       y = "CT Value (Seconds)") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Initialize variables to store the best accuracy and corresponding threshold
+best_accuracy <- 0
+best_threshold <- 0
+best_sensitivity <- 0
+best_specificity <- 0
+
+# Define a range of threshold values to test
+threshold_values <- seq(0, 1410, by = 0.5)  # Adjust the range and step size as needed
+
+# Iterate over each threshold value
+for (threshold in threshold_values) {
+    # Calculate true positives, true negatives, false positives, and false negatives
+    True_Positive <- sum(NGMalePos < threshold, na.rm = TRUE)
+    True_Negative <- sum(NGMaleNeg > threshold, na.rm = TRUE)
+    False_Positive <- sum(NGMalePos > threshold, na.rm = TRUE)
+    False_Negative <- sum(NGMaleNeg < threshold, na.rm = TRUE)
+    
+    # Calculate accuracy
+    Accuracy <- (True_Positive + True_Negative) / (True_Positive + False_Positive + False_Negative + True_Negative)
+    
+    # Check if current accuracy is higher than the best accuracy found so far
+    if (Accuracy > best_accuracy) {
+        best_accuracy <- Accuracy
+        best_threshold <- threshold
+    }
+}
+
+# Calculate sensitivity and specificity only for the best threshold
+True_Positive <- sum(NGMalePos < best_threshold, na.rm = TRUE)
+True_Negative <- sum(NGMaleNeg > best_threshold, na.rm = TRUE)
+False_Positive <- sum(NGMalePos > best_threshold, na.rm = TRUE)
+False_Negative <- sum(NGMaleNeg < best_threshold, na.rm = TRUE)
+
+# Calculate sensitivity
+Sensitivity <- True_Positive / (True_Positive + False_Negative)
+
+# Calculate specificity
+Specificity <- True_Negative / (True_Negative + False_Positive)
+
+# Print the best accuracy, sensitivity, specificity, and corresponding threshold
+cat("Best Accuracy:", best_accuracy, "\n")
+cat("Corresponding Threshold (seconds):", best_threshold, "\n")
+cat("Sensitivity:", Sensitivity, "\n")
+cat("Specificity:", Specificity, "\n")
+cat("True Positives:", True_Positive, "\n")
+cat("True Negatives:", True_Negative, "\n")
+cat("False Positives:", False_Positive, "\n")
+cat("False Negatives:", False_Negative, "\n")
+
+```
+
+### CT Females Testing
+
+``` {r}
+CTFemalePos <- CTFemalePos[4:63,4:111]
+CTFemaleNeg <- CTFemaleNeg[4:63,4:87]
+
+print(CTFemalePos)
+print(CTFemaleNeg)
+```
+
+``` {r}
+CTFemalePos <- na.locf(CTFemalePos)
+CTFemaleNeg <- na.locf(CTFemaleNeg)
+```
+
+```{r}
+CTFemalePos <- calculate_differences(CTFemalePos)
+CTFemaleNeg <- calculate_differences(CTFemaleNeg)
+print(CTFemalePos)
+print(CTFemaleNeg)
+```
+
+```{r}
+CTFemalePos <- highlight_max_values_and_combine(CTFemalePos)
+CTFemaleNeg <- highlight_max_values_and_combine(CTFemaleNeg)
+print(CTFemalePos)
+print(CTFemaleNeg)
+```
+
+```{r}
+CTFemalePos <- subset(CTFemalePos, CT_Value_Seconds != 90)
+CTFemaleNeg <- subset(CTFemaleNeg, CT_Value_Seconds != 90)
+CTFemalePos <- subset(CTFemalePos, CT_Value_Seconds != 30)
+CTFemaleNeg <- subset(CTFemaleNeg, CT_Value_Seconds != 30)
+CTFemalePos <- subset(CTFemalePos, CT_Value_Seconds != 180)
+CTFemaleNeg <- subset(CTFemaleNeg, CT_Value_Seconds != 180)
+```
+
+```{r}
+# Create a new column to identify the source of data
+CTFemalePosClone <- CTFemalePos
+CTFemaleNegClone <- CTFemaleNeg
+
+CTFemalePosClone$Source <- "Positive"
+CTFemaleNegClone$Source <- "Negative"
+
+# Merge the data frames
+merged_df <- rbind(CTFemalePosClone, CTFemaleNegClone)
+
+# Create the violin plot
+ggplot(merged_df, aes(x = Source, y = CT_Value_Seconds, fill = Source)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) + # Add boxplot for better visualization
+  labs(title = "Comparison of CTMale CT Values",
+       x = "Category",
+       y = "CT Value (Seconds)") +
+  theme_minimal()
+
+```
+
+```{r}
+# Initialize variables to store the best accuracy and corresponding threshold
+best_accuracy <- 0
+best_threshold <- 0
+best_sensitivity <- 0
+best_specificity <- 0
+
+# Define a range of threshold values to test
+threshold_values <- seq(0, 1410, by = 0.5)  # Adjust the range and step size as needed
+
+# Iterate over each threshold value
+for (threshold in threshold_values) {
+    # Calculate true positives, true negatives, false positives, and false negatives
+    True_Positive <- sum(CTFemalePos < threshold, na.rm = TRUE)
+    True_Negative <- sum(CTFemaleNeg > threshold, na.rm = TRUE)
+    False_Positive <- sum(CTFemalePos > threshold, na.rm = TRUE)
+    False_Negative <- sum(CTFemaleNeg < threshold, na.rm = TRUE)
+    
+    # Calculate accuracy
+    Accuracy <- (True_Positive + True_Negative) / (True_Positive + False_Positive + False_Negative + True_Negative)
+    
+    # Check if current accuracy is higher than the best accuracy found so far
+    if (Accuracy > best_accuracy) {
+        best_accuracy <- Accuracy
+        best_threshold <- threshold
+    }
+}
+
+# Calculate sensitivity and specificity only for the best threshold
+True_Positive <- sum(CTFemalePos < best_threshold, na.rm = TRUE)
+True_Negative <- sum(CTFemaleNeg > best_threshold, na.rm = TRUE)
+False_Positive <- sum(CTFemalePos > best_threshold, na.rm = TRUE)
+False_Negative <- sum(CTFemaleNeg < best_threshold, na.rm = TRUE)
+
+# Calculate sensitivity
+Sensitivity <- True_Positive / (True_Positive + False_Negative)
+
+# Calculate specificity
+Specificity <- True_Negative / (True_Negative + False_Positive)
+
+# Print the best accuracy, sensitivity, specificity, and corresponding threshold
+cat("Best Accuracy:", best_accuracy, "\n")
+cat("Corresponding Threshold (seconds):", best_threshold, "\n")
+cat("Sensitivity:", Sensitivity, "\n")
+cat("Specificity:", Specificity, "\n")
+cat("True Positives:", True_Positive, "\n")
+cat("True Negatives:", True_Negative, "\n")
+cat("False Positives:", False_Positive, "\n")
+cat("False Negatives:", False_Negative, "\n")
+
+```
